@@ -1,0 +1,11 @@
+.venv310
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.git
+.gitignore
+.cursor
+notebook/.ipynb_checkpoints
+data/train/uploads
+data/retraining_log.db

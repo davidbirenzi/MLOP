@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+tensorflow
+numpy
+pillow
+python-multipart
+medmnist
+scikit-learn
+seaborn
+matplotlib
+streamlit
+requests
+pandas
+locust

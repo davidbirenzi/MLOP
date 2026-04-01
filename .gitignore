@@ -1,0 +1,11 @@
+.venv310/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cursor/
+.DS_Store
+
+data/retraining_log.db
+data/train/uploads/
+notebook/.ipynb_checkpoints/

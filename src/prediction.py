@@ -25,6 +25,7 @@ app = FastAPI(title="PathMNIST MLOps API")
 DB_PATH = "data/retraining_log.db"
 START_TIME = time.time()
 RETRAIN_JOBS = {}
+CLOUD_SAFE_RETRAIN = os.environ.get("RENDER", "").lower() == "true"
 
 # --- DATABASE SETUP ---
 
@@ -148,16 +149,25 @@ async def trigger_retrain(file: UploadFile = File(...)):
                         n_samples=128, batch_size=16, validation_split=0.2
                     )
 
-                history = retrain_pipeline(train_ds, val_ds, epochs=1)
-                model = load_production_model()
-
-                last_epoch = len(history.history.get("loss", [])) - 1
                 metrics_summary = {}
-                if last_epoch >= 0:
-                    for key in ("loss", "val_loss", "accuracy", "val_accuracy"):
-                        vals = history.history.get(key)
-                        if vals:
-                            metrics_summary[key] = float(vals[last_epoch])
+                if CLOUD_SAFE_RETRAIN:
+                    # Free cloud instances can crash on backprop memory usage.
+                    # Keep the retraining workflow demonstrable and reliable in cloud.
+                    model = load_production_model()
+                    metrics_summary = {
+                        "mode": "cloud_safe",
+                        "note": "Skipped gradient training on Render to avoid instance OOM/timeouts. "
+                        "Run full retraining locally/docker for full benchmark.",
+                    }
+                else:
+                    history = retrain_pipeline(train_ds, val_ds, epochs=1)
+                    model = load_production_model()
+                    last_epoch = len(history.history.get("loss", [])) - 1
+                    if last_epoch >= 0:
+                        for key in ("loss", "val_loss", "accuracy", "val_accuracy"):
+                            vals = history.history.get(key)
+                            if vals:
+                                metrics_summary[key] = float(vals[last_epoch])
 
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()

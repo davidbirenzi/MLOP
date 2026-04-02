@@ -89,7 +89,37 @@ def build_tf_datasets_from_class_folders(
     Builds train/val tf.data datasets from a directory with one subfolder per class.
     Subfolder names must be "0" … "8" (PathMNIST alignment).
     """
+    count = 0
+    for i in range(PATHMNIST_NUM_CLASSES):
+        p = os.path.join(directory, str(i))
+        if os.path.isdir(p):
+            count += len(
+                [
+                    f
+                    for f in os.listdir(p)
+                    if os.path.splitext(f)[1].lower()
+                    in {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
+                ]
+            )
+
     class_names = [str(i) for i in range(PATHMNIST_NUM_CLASSES)]
+
+    # Tiny uploads (e.g., 1 image per class) are common in demos and can fail
+    # with strict train/validation splitting. Use one dataset for both.
+    if count < 20:
+        ds = tf.keras.utils.image_dataset_from_directory(
+            directory,
+            labels="inferred",
+            class_names=class_names,
+            seed=seed,
+            image_size=(IMG_SIZE, IMG_SIZE),
+            batch_size=batch_size,
+        )
+        ds = ds.map(_mobilenet_map, num_parallel_calls=tf.data.AUTOTUNE).prefetch(
+            tf.data.AUTOTUNE
+        )
+        return ds, ds, count
+
     train_ds = tf.keras.utils.image_dataset_from_directory(
         directory,
         labels="inferred",
@@ -114,18 +144,6 @@ def build_tf_datasets_from_class_folders(
     val_ds = val_ds.map(_mobilenet_map, num_parallel_calls=tf.data.AUTOTUNE)
     train_ds = train_ds.prefetch(tf.data.AUTOTUNE)
     val_ds = val_ds.prefetch(tf.data.AUTOTUNE)
-    count = 0
-    for i in range(PATHMNIST_NUM_CLASSES):
-        p = os.path.join(directory, str(i))
-        if os.path.isdir(p):
-            count += len(
-                [
-                    f
-                    for f in os.listdir(p)
-                    if os.path.splitext(f)[1].lower()
-                    in {".png", ".jpg", ".jpeg", ".bmp", ".gif"}
-                ]
-            )
     return train_ds, val_ds, count
 
 

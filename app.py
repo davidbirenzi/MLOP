@@ -167,6 +167,16 @@ elif choice == "Retraining":
                         st.success(data.get("message", "Done"))
                         st.json(data)
                     else:
-                        st.error(resp.text)
+                        # Render/proxy errors sometimes return empty bodies.
+                        # Show status + parsed details so failures are actionable.
+                        detail = ""
+                        try:
+                            payload = resp.json()
+                            detail = payload.get("detail", "") if isinstance(payload, dict) else str(payload)
+                        except ValueError:
+                            detail = (resp.text or "").strip()
+                        if not detail:
+                            detail = "No error body returned by server."
+                        st.error(f"Retraining failed (HTTP {resp.status_code}): {detail}")
                 except Exception as e:
                     st.error(str(e))

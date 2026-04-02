@@ -1,150 +1,98 @@
-# PathMNIST — End-to-End MLOps Pipeline (ALU BSE)
+# PathMNIST MLOps pipeline
 
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
+Histology image classification on **PathMNIST** (MedMNIST): train offline in the notebook, serve predictions via **FastAPI**, dashboard via **Streamlit**, deploy on **Render**, load-test with **Locust** and **Docker Compose** scaling.
 
-## Video demo (rubric)
+## Submission
 
-**[Insert your YouTube link here]**  
+| Item | Link |
+|------|------|
+| GitHub | https://github.com/davidbirenzi/MLOP |
+| Video demo | https://youtu.be/CH3YgUBzAPc |
+| API (cloud) | https://pathmnist-api-service.onrender.com |
+| UI (cloud) | https://pathmnist-ui-services.onrender.com |
 
-Requirements addressed on camera: **prediction** on an uploaded image and **retraining trigger** (bulk upload + button), with the API/UI visible.
+API docs: `/docs` · Health: `/health`
 
----
 
-## Project description (assignment alignment)
+- **Non-tabular data:** PathMNIST images  
+- **Pipeline:** acquisition → preprocessing → model → test → **retrain** (upload zip + trigger) → **API**  
+- **Notebook:** `notebook/pathmnist_mlop.ipynb` — preprocessing, MobileNetV2 + early stopping, **accuracy, loss, precision, recall, F1**  
+- **Model file:** `models/mobilenet_pathmnist.h5`  
+- **UI:** `app.py` — uptime/health, data insight charts, predict, retrain  
+- **Cloud:** API + UI on Render  
+- **Flood test:** `locustfile.py` → `POST /predict`; results + screenshots in `locust_screenshots/` (see `locust_screenshots/REPORT.md`)
+- **Database:** SQLite log for each retrain upload (see below)
 
-| Requirement | How this repo satisfies it |
-|-------------|---------------------------|
-| Non-tabular data | **PathMNIST** histology images (28×28 RGB, 9 classes) |
-| Offline model + deploy | Notebook trains/exports `.h5`; FastAPI serves inference |
-| Metrics in notebook | **Accuracy, loss, precision, recall, F1** (≥4) + early stopping, pretrained MobileNetV2 |
-| API (Python) | `src/prediction.py` — `/predict`, `/retrain`, `/health` |
-| UI | `app.py` (Streamlit) — uptime/health, insights, prediction, bulk retrain |
-| Retraining | Zip upload → SQLite log → **preprocess** → **fine-tune** pretrained model; MedMNIST subset fallback if zip layout is wrong |
-| Load test | `locustfile.py` + record latency (see below) |
-| Repo layout | Matches spec: `notebook/`, `src/`, `data/`, `models/` |
+## Sample retrain zip
 
-### Retrain zip layout (for *your* bulk data)
+`exported_samples.zip` in the repo root is a ready-made upload: unzip and you get `exported_samples/` with class folders `0`–`8` and one image per class (PathMNIST-style layout). Use it in the UI or `POST /retrain` to demo the pipeline without building your own archive.
 
-At the root of the zip, include folders named exactly **`0` … `8`**, each containing at least one image (`.png`/`.jpg`/`.jpeg`). This matches PathMNIST class ids.  
+## Retrain zip layout
 
-If this layout is missing, the API still runs a **PathMNIST subset** fine-tune so the pipeline is demonstrable end-to-end.
-
----
-
-## URLs (local / cloud)
-
-| Service | URL |
-|--------|-----|
-| API docs | `http://127.0.0.1:8000/docs` |
-| Streamlit UI | `http://127.0.0.1:8501` |
-| Health | `http://127.0.0.1:8000/health` |
-
-Replace host with your cloud instance when deployed. Set `API_URL` for the UI if needed:
-
-```powershell
-$env:API_URL = "http://your-host:8000"
-streamlit run app.py
+```
+your_zip.zip
+└── exported_samples/   (name can vary; API finds nested class folders)
+    ├── 0/
+    ├── 1/
+    …
+    └── 8/
 ```
 
----
+## Database (SQLite)
 
-## Setup (Windows / macOS / Linux)
+Retrain uploads are logged in **`data/retraining_log.db`** (created when the API first runs). Table **`uploads`**: `id`, `filename`, `upload_date`, `sample_count`. On `/retrain`, the API inserts a row when the zip is saved, then updates `sample_count` after extraction and preprocessing finish. That file is **gitignored** (local/cloud runtime state); graders see the schema and behavior in `src/prediction.py` (`init_db`, `INSERT`, `UPDATE`).
 
-1. **Python 3.10+** recommended (TensorFlow wheels).  
-2. Clone / unzip the repository and enter the folder:
-
-```bash
-cd MLOP
-```
-
-3. Create and activate a virtual environment, then install dependencies:
+## Run locally
 
 ```powershell
 py -3.10 -m venv .venv310
 .\.venv310\Scripts\activate
-python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-4. **Model file:** train with `notebook/pathmnist_mlop.ipynb` and save to `models/mobilenet_pathmnist.h5`, or copy your trained file to that path.
+Terminal 1 — API: `python -m uvicorn src.prediction:app --reload --port 8000`  
+Terminal 2 — UI: `streamlit run app.py`  
+(Optional) UI → set `API_URL` if API is not on `http://127.0.0.1:8000`.
 
-5. **Run the API:**
+## Docker
 
-```powershell
-python -m uvicorn src.prediction:app --reload --port 8000
+Build: `docker build -t pathmnist-mlops .`  
+Compose (scaled API + Nginx): `docker compose up -d --scale api=N`  
+Locust against LB: `locust -f locustfile.py --host http://127.0.0.1:8000` → http://localhost:8089
+
+## Render (what we used)
+
+- **API:** Python 3.10, build `pip install -r requirements-docker.txt`, start `python -m uvicorn src.prediction:app --host 0.0.0.0 --port $PORT`  
+- **UI:** same build, start `streamlit run app.py --server.port $PORT --server.address 0.0.0.0`, env `API_URL=https://pathmnist-api-service.onrender.com`
+
+## Locust results (local, 5 users)
+
+| Containers | RPS | p50 (ms) | p95 (ms) | Failures |
+|-----------:|----:|---------:|---------:|----------|
+| 1 | 2.4 | 170 | 290 | ~0.2% (1/470) |
+| 2 | 2.2 | 170 | 270 | 0% |
+| 3 | 1.9 | 200 | 470 | 0% |
+
+Detail: `locust_screenshots/REPORT.md`
+
+## Repo layout
+
 ```
-
-6. **Run the UI** (second terminal):
-
-```powershell
-streamlit run app.py
-```
-
-7. **Optional — Locust** (with API running):
-
-```powershell
-locust -f locustfile.py --host=http://127.0.0.1:8000
-```
-
-Open the Locust web UI (default `http://localhost:8089`), set users/spawn rate, run, then export charts/tables for your report.
-
-8. **Optional — Docker**
-
-```bash
-docker build -t pathmnist-mlops .
-docker run -p 8000:8000 -p 8501:8501 pathmnist-mlops
-```
-
----
-
-## Flood simulation results (fill in for submission)
-
-| Containers | Users | RPS (approx.) | p50 latency (ms) | p95 latency (ms) | Notes |
-|------------|-------|---------------|------------------|------------------|-------|
-| 1 | | | | | |
-| 2 | | | | | |
-| 3 | | | | | |
-
-*Use Locust “Statistics” / “Charts” after runs with different replica counts (e.g. Docker Compose scaling).*
-
----
-
-## Repository structure
-
-```text
 MLOP/
 ├── README.md
+├── exported_samples.zip          # sample retrain bundle (0–8 class folders)
 ├── requirements.txt
+├── requirements-docker.txt
 ├── Dockerfile
-├── app.py                 # Streamlit UI (uptime, insights, predict, retrain)
+├── docker-compose.yml
+├── nginx.conf
+├── app.py
 ├── locustfile.py
-├── notebook/
-│   └── pathmnist_mlop.ipynb
-├── src/
-│   ├── preprocessing.py
-│   ├── model.py
-│   └── prediction.py
-├── data/
-│   ├── train/             # uploads / extracted zips (created at runtime)
-│   └── test/              # optional sample_image.jpg for Locust
-└── models/
-    └── mobilenet_pathmnist.h5
+├── locust_screenshots/
+├── notebook/pathmnist_mlop.ipynb
+├── src/preprocessing.py, model.py, prediction.py
+├── data/train, data/test         # + retraining_log.db at runtime (gitignored)
+└── models/mobilenet_pathmnist.h5
 ```
 
----
-
-## Rubric checklist (self-audit)
-
-- **Video:** Camera on; show prediction + retraining.  
-- **Retraining:** Upload + DB + preprocessing + fine-tune pretrained model (`retrain_pipeline`).  
-- **Prediction:** Image upload; show class name + confidence.  
-- **Notebook:** Preprocessing, pretrained model, optimization, **≥4 metrics**.  
-- **Deployment package:** Web UI + insights; Docker optional but provided.
-
----
-
-## License / credits
-
-PathMNIST via [MedMNIST](https://github.com/MedMNIST/MedMNIST). Use for coursework per your institution’s policy.
+Dataset: [MedMNIST / PathMNIST](https://github.com/MedMNIST/MedMNIST).
